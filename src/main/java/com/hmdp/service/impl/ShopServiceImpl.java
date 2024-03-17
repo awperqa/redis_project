@@ -9,6 +9,7 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.CacheRedis;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisData;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,61 +33,71 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
     @Autowired
     private RedisTemplate redisTemplate;
+    @Autowired
+    private CacheRedis cacheRedis;
 
     @Override
     public Result queryById(Long id) {
-        //查询redis
-        String shopJson = (String) redisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
-        //redis有数据直接返回
-        if (StrUtil.isNotBlank(shopJson)) {
-            Shop shop = JSONUtil.toBean(shopJson, Shop.class);
-            return Result.ok(shop);
+       String keyPreFix = RedisConstants.CACHE_SHOP_KEY;
+//        Shop shop = cacheRedis.cacheBlank(keyPreFix, id, Shop.class, this::getById, RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+        Shop shop = cacheRedis.CacheExpire(keyPreFix, id, Shop.class, this::getById, LocalDateTime.now().plusSeconds(20l));
+        if(shop==null){
+            return Result.fail("店铺不存在");
         }
-        if (shopJson != null) {
-            return Result.fail("店铺不存在!");
-        }
-        //通过互斥锁避免缓存击穿
-        //获取互斥锁
-        String key = RedisConstants.LOCK_SHOP_KEY + id;
-        Shop shop = null;
-        try {
-            Boolean lock = tryLock(key);
-            //判断锁是否创建成功
-            if (!lock) {
-                //有锁休眠重试
-                Thread.sleep(50);
-                return queryById(id);
-            }
-            //成功
-            //进行二次检查 redis缓存
-            String check = (String) redisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
-            //redis有数据直接返回
-            if (StrUtil.isNotBlank(check)) {
-                Shop shopBean = JSONUtil.toBean(check, Shop.class);
-                return Result.ok(shopBean);
-            }
-            if (check != null) {
-                return Result.fail("店铺不存在!");
-            }
-            //查询数据库
-            shop = getById(id);
-            //判断店铺是否存在
-            if (shop == null) {
-                //不存在返回404
-                redisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id, "", RedisConstants.LOGIN_CODE_TTL, TimeUnit.MINUTES);
-            }
-            //存在则缓存数据到redis
-            String toJsonStr = JSONUtil.toJsonStr(shop);
-            redisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id, toJsonStr, RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
-
-        } catch (InterruptedException e) {
-            throw new RuntimeException();
-        } finally {
-            //释放互斥锁
-            unLock(key);
-        }
-        //返回数据
         return Result.ok(shop);
+
+//        //查询redis
+//        String shopJson = (String) redisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
+//        //redis有数据直接返回
+//        if (StrUtil.isNotBlank(shopJson)) {
+//            Shop shop = JSONUtil.toBean(shopJson, Shop.class);
+//            return Result.ok(shop);
+//        }
+//        if (shopJson != null) {
+//            return Result.fail("店铺不存在!");
+//        }
+//        //通过互斥锁避免缓存击穿
+//        //获取互斥锁
+//        String key = RedisConstants.LOCK_SHOP_KEY + id;
+//        Shop shop = null;
+//        try {
+//            Boolean lock = tryLock(key);
+//            //判断锁是否创建成功
+//            if (!lock) {
+//                //有锁休眠重试
+//                Thread.sleep(50);
+//                return queryById(id);
+//            }
+//            //成功
+//            //进行二次检查 redis缓存
+//            String check = (String) redisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
+//            //redis有数据直接返回
+//            if (StrUtil.isNotBlank(check)) {
+//                Shop shopBean = JSONUtil.toBean(check, Shop.class);
+//                return Result.ok(shopBean);
+//            }
+//            if (check != null) {
+//                return Result.fail("店铺不存在!");
+//            }
+//            //查询数据库
+//            shop = getById(id);
+//            //判断店铺是否存在
+//            if (shop == null) {
+//                //不存在返回404
+//                redisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id, "", RedisConstants.LOGIN_CODE_TTL, TimeUnit.MINUTES);
+//            }
+//            //存在则缓存数据到redis
+//            String toJsonStr = JSONUtil.toJsonStr(shop);
+//            redisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id, toJsonStr, RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+//
+//        } catch (InterruptedException e) {
+//            throw new RuntimeException();
+//        } finally {
+//            //释放互斥锁
+//            unLock(key);
+//        }
+//        //返回数据
+//        return Result.ok(shop);
     }
 
 
@@ -144,13 +155,13 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         CACHE_REBUILD.submit(()->{
             try {
                 queryWithExpire(id,20l);
-                unLock(lockKey);
             } catch (InterruptedException e) {
                 e.printStackTrace();
+            }finally {
+                unLock(lockKey);
             }
         });
         return shop;
-
 
 }
 
@@ -166,7 +177,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
     //新增热点数据
     public void queryWithExpire(Long id, Long expire) throws InterruptedException {
-        Thread.sleep(200);
+        Thread.sleep(100);
         //查询店铺信息
         Shop shop = getById(id);
         //封装过期时间
