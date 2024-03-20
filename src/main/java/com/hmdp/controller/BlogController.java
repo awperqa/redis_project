@@ -8,8 +8,10 @@ import com.hmdp.entity.Blog;
 import com.hmdp.entity.User;
 import com.hmdp.service.IBlogService;
 import com.hmdp.service.IUserService;
+import com.hmdp.service.impl.BlogServiceImpl;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -31,6 +33,9 @@ public class BlogController {
     private IBlogService blogService;
     @Resource
     private IUserService userService;
+    @Autowired
+    private BlogServiceImpl blogServices;
+
 
     @PostMapping
     public Result saveBlog(@RequestBody Blog blog) {
@@ -46,10 +51,14 @@ public class BlogController {
     @PutMapping("/like/{id}")
     public Result likeBlog(@PathVariable("id") Long id) {
         // 修改点赞数量
-        blogService.update()
-                .setSql("liked = liked + 1").eq("id", id).update();
-        return Result.ok();
+        return blogService.likeBlog(id);
     }
+
+    @GetMapping("/likes/{id}")
+    public Result queryBlogLikes(@PathVariable Long id){
+        return  blogService.queryBlogLikes(id);
+    }
+
 
     @GetMapping("/of/me")
     public Result queryMyBlog(@RequestParam(value = "current", defaultValue = "1") Integer current) {
@@ -77,7 +86,13 @@ public class BlogController {
             User user = userService.getById(userId);
             blog.setName(user.getNickName());
             blog.setIcon(user.getIcon());
+            blogServices.isBlogLiked(blog);
         });
         return Result.ok(records);
+    }
+
+    @GetMapping("/{id}")
+    public Result queryById(@PathVariable Long id){
+        return blogService.queryById(id);
     }
 }
