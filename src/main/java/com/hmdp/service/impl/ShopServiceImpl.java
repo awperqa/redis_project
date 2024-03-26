@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSON;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
@@ -12,12 +13,20 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.CacheRedis;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisData;
+import com.hmdp.utils.SystemConstants;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.geo.Distance;
+import org.springframework.data.geo.GeoResult;
+import org.springframework.data.geo.GeoResults;
+import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.domain.geo.BoundingBox;
+import org.springframework.data.redis.domain.geo.GeoReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.*;
 import java.util.concurrent.*;
 
 /**
@@ -39,8 +48,8 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Override
     public Result queryById(Long id) {
        String keyPreFix = RedisConstants.CACHE_SHOP_KEY;
-//        Shop shop = cacheRedis.cacheBlank(keyPreFix, id, Shop.class, this::getById, RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
-        Shop shop = cacheRedis.CacheExpire(keyPreFix, id, Shop.class, this::getById, LocalDateTime.now().plusSeconds(20l));
+        Shop shop = cacheRedis.cacheBlank(keyPreFix, id, Shop.class, this::getById, RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+        //Shop shop = cacheRedis.CacheExpire(keyPreFix, id, Shop.class, this::getById, LocalDateTime.now().plusSeconds(20l));
         if(shop==null){
             return Result.fail("店铺不存在");
         }
@@ -164,6 +173,49 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         return shop;
 
 }
+
+    @Override
+    public Result queryShopByType(Integer typeId, Integer current, Double x, Double y) {
+        //判断是否需要坐标查询
+        if(x == null || y == null){
+            Page<Shop> shopPage = query().eq("type_id", typeId).page(new Page<>(current, SystemConstants.DEFAULT_PAGE_SIZE));
+            return Result.ok(shopPage.getRecords());
+        }
+        //计算分页参数
+        int from = (current-1)*SystemConstants.DEFAULT_PAGE_SIZE;
+        int end = SystemConstants.DEFAULT_PAGE_SIZE*current;
+        //查询redis 按照距离排序 分页
+        String key = RedisConstants.SHOP_GEO_KEY + typeId;
+        GeoResults<RedisGeoCommands.GeoLocation<String>> results = redisTemplate.opsForGeo()
+                .search(
+                        key,
+                        GeoReference.fromCoordinate(x, y), new Distance(5000),
+                        RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs().includeDistance().limit(end));
+        //返回排序后的shopList
+        if(results==null){
+            return Result.ok(Collections.emptyList());
+        }
+        //解析id
+        List<GeoResult<RedisGeoCommands.GeoLocation<String>>> content = results.getContent();
+        if(content.size() <= from){
+            return Result.ok(Collections.emptyList());
+        }
+        List<Long> ids = new ArrayList<>(content.size());
+        Map<String,Distance> distanceMap = new HashMap<>(content.size());
+        content.stream().skip(from).forEach(result->{
+            String shopId = result.getContent().getName();
+            Distance distance = result.getDistance();
+            ids.add(Long.valueOf(shopId));
+            distanceMap.put(shopId,distance);
+        });
+        //根据id查询店铺 返回
+        String idStr = StrUtil.join(",",ids);
+        List<Shop> shopList = query().in("id", ids).last("order by field(id," + idStr + ")").list();
+        for (Shop shop : shopList) {
+            shop.setDistance(distanceMap.get(shop.getId().toString()).getValue());
+        }
+        return Result.ok(shopList);
+    }
 
 
     private Boolean tryLock(String key) {

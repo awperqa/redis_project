@@ -2,6 +2,7 @@ package com.hmdp;
 
 import cn.hutool.core.bean.BeanUtil;
 import com.hmdp.dto.UserDTO;
+import com.hmdp.entity.Shop;
 import com.hmdp.entity.User;
 import com.hmdp.service.IShopService;
 import com.hmdp.service.IUserService;
@@ -12,12 +13,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.geo.Point;
+import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.RedisTemplate;
 
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @SpringBootTest
 class HmDianPingApplicationTests {
@@ -51,6 +53,22 @@ class HmDianPingApplicationTests {
             //redisTemplate.expire(key,RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
             System.out.println(token);
         }
+    }
+    @Test
+    public void shopTest(){
+        List<Shop> list = shopService.list();
+        Map<Long, List<Shop>> listMap = list.stream().collect(Collectors.groupingBy(Shop::getTypeId));
+        for (Map.Entry<Long, List<Shop>> entry : listMap.entrySet()) {
+            Long typeId = entry.getKey();
+            String key = "shop:geo:"+typeId;
+            List<Shop> value = entry.getValue();
+            List<RedisGeoCommands.GeoLocation<String>> locations = new ArrayList<>(value.size());
+            for (Shop shop : value) {
+                locations.add(new RedisGeoCommands.GeoLocation<>(shop.getId().toString(),new Point(shop.getX(),shop.getY())));
+            }
+            redisTemplate.opsForGeo().add(key,locations);
+        }
 
     }
+
 }

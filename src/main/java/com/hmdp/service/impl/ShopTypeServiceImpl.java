@@ -59,7 +59,7 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
         for (ShopType shopType : typeList) {
             stringList.add(JSONUtil.toJsonStr(shopType));
         }
-        redisTemplate.opsForList().rightPushAll(RedisConstants.CACHE_SHOP_TYPE_KEY,stringList,RedisConstants.CACHE_SHOP_TTL,TimeUnit.MINUTES);
+        redisTemplate.opsForList().rightPushAll(RedisConstants.CACHE_SHOP_TYPE_KEY,stringList);
         //返回数据
         return Result.ok(typeList);
     }

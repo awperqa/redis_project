@@ -1,7 +1,9 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.StrUtil;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.ScrollResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.Follow;
@@ -14,12 +16,10 @@ import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.UserHolder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Scanner;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -122,9 +122,54 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         for (Follow follow : followList) {
             Long userId = follow.getUserId();
             String key = RedisConstants.FEED_KEY + userId;
-            redisTemplate.opsForZSet().add(key,follow.getId().toString(),System.currentTimeMillis());
+            redisTemplate.opsForZSet().add(key,blog.getId().toString(),System.currentTimeMillis());
         }
         return Result.ok(blog.getId());
+    }
+
+    @Override
+    public Result queryBlogOfFollow(Long lastId, Integer offset) {
+        //查询用户id
+        Long userId = UserHolder.getUser().getId();
+        //获取收件箱
+        String key = RedisConstants.FEED_KEY + userId;
+        Set<ZSetOperations.TypedTuple<String>> blogIds = redisTemplate.opsForZSet().reverseRangeByScoreWithScores(key, 0, lastId, offset, 2);
+        if(blogIds==null||blogIds.isEmpty()){
+            return Result.ok();
+        }
+        List<Long> ids = new ArrayList<>();
+        //解析所有日志的blogID  score  offset(相同score数)
+        Long minTime = 0L;
+        Integer os = 1;
+        for (ZSetOperations.TypedTuple<String> blog : blogIds) {
+            String id = blog.getValue();
+            ids.add(Long.valueOf(id));
+            long score = blog.getScore().longValue();
+            if(score==minTime){
+                os++;
+            }else{
+                minTime = score;
+                os=1;
+            }
+        }
+        //查询数据
+        String idStr = StrUtil.join(",", ids);
+        List<Blog>blogs = query().in("id",ids).last("order by field(id,"+idStr+")").list();
+
+        for (Blog blog : blogs) {
+            Long blogUserId = blog.getUserId();
+            User user = userService.getById(blogUserId);
+            blog.setName(user.getNickName());
+            blog.setIcon(user.getIcon());
+            isBlogLiked(blog);
+        }
+
+        //封装返回
+        ScrollResult scrollResult = new ScrollResult();
+        scrollResult.setMinTime(minTime);
+        scrollResult.setOffset(os);
+        scrollResult.setList(blogs);
+        return  Result.ok(scrollResult);
     }
 
 

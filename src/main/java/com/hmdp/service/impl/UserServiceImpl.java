@@ -12,13 +12,20 @@ import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.SystemConstants;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpSession;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.Month;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -91,6 +98,54 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         //返回token
         return Result.ok(token);
     }
+
+    @Override
+    public Result sign() {
+        //获取用户id
+        Long userId = UserHolder.getUser().getId();
+        //获取日期
+        LocalDate localDate = LocalDate.now();
+        //拼接key
+        String key =RedisConstants.USER_SIGN_KEY + userId+localDate.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        //获取今天是这个月的第几天
+        int dayOfMonth = localDate.getDayOfMonth();
+        //将签到数据保存到bitmap
+        redisTemplate.opsForValue().setBit(key,dayOfMonth-1,true);
+        return Result.ok();
+    }
+
+    @Override
+    public Result signCount() {
+        //获取用户id
+        Long userId = UserHolder.getUser().getId();
+        //通过用户id查询用户本月签到数据
+        LocalDate localDate = LocalDate.now();
+        //获取今天是这个月的第几天
+        int dayOfMonth = localDate.getDayOfMonth();
+        String key = RedisConstants.USER_SIGN_KEY + userId + localDate.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        List<Long> list = redisTemplate.opsForValue().bitField(
+                key,
+                BitFieldSubCommands.create().get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0));
+        //统计连续签到天数
+        if(list==null||list.isEmpty()){
+            return Result.ok(0);
+        }
+        Long num = list.get(0);
+        if(num==null||num==0){
+            return Result.ok(0);
+        }
+        int count = 0;
+        while (true) {
+            if ((num & 1) == 0) {
+                break;
+            }
+            count++;
+            num = num >> 1;
+        }
+        //返回天数
+        return Result.ok(count);
+    }
+
 
     private User createUserWithPhone(String phone) {
         User user = new User();
