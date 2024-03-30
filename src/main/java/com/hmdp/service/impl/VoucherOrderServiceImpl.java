@@ -63,11 +63,21 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     private BlockingQueue<VoucherOrder> orderTasks = new ArrayBlockingQueue<>(1024*1024);
 
-    private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
+//    private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
+
+
+    private static final ThreadPoolExecutor SECKILL_ORDER_EXECUTOR = new ThreadPoolExecutor(1,
+            1,
+            100,
+            TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(1024*1024)
+    );
+
 
      @PostConstruct
      private void init(){
-         SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
+         Runnable task = new VoucherOrderHandler();
+         SECKILL_ORDER_EXECUTOR.submit(task);
      }
 
 

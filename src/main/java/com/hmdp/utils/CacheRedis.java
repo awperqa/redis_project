@@ -3,8 +3,8 @@ package com.hmdp.utils;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.hmdp.dto.Result;
-import com.hmdp.entity.Shop;
+
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -16,7 +16,7 @@ import java.util.function.Function;
 
 @Component
 public class CacheRedis {
-
+    @Autowired  
     private RedisTemplate redisTemplate;
 
     public CacheRedis(RedisTemplate redisTemplate) {

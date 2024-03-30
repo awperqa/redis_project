@@ -1,5 +1,7 @@
 package com.hmdp.service.impl;
 
+import ch.qos.logback.core.util.COWArrayList;
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSON;
 import cn.hutool.json.JSONObject;
@@ -10,10 +12,9 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.hmdp.utils.CacheRedis;
-import com.hmdp.utils.RedisConstants;
-import com.hmdp.utils.RedisData;
-import com.hmdp.utils.SystemConstants;
+import com.hmdp.utils.*;
+import org.redisson.api.RBloomFilter;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.GeoResult;
@@ -44,16 +45,46 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     private RedisTemplate redisTemplate;
     @Autowired
     private CacheRedis cacheRedis;
+    @Autowired
+    private static RedissonClient redissonClient;
+
+
+
+
+
 
     @Override
     public Result queryById(Long id) {
-       String keyPreFix = RedisConstants.CACHE_SHOP_KEY;
-        Shop shop = cacheRedis.cacheBlank(keyPreFix, id, Shop.class, this::getById, RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
-        //Shop shop = cacheRedis.CacheExpire(keyPreFix, id, Shop.class, this::getById, LocalDateTime.now().plusSeconds(20l));
-        if(shop==null){
+        RBloomFilter<Long> bloomFilter = BloomFilter.getBloomFilter();
+        if(!bloomFilter.contains(id)){
+            //不存在 一定不存在
             return Result.fail("店铺不存在");
         }
+        //存在 (可能不存在)
+        //查询redis是否有缓存
+        String keyPreFix = RedisConstants.CACHE_SHOP_KEY;
+        String json = (String) redisTemplate.opsForValue().get(keyPreFix + id);
+        //有，返回
+        if(json!=null){
+            Shop shop = JSONUtil.toBean(json, Shop.class);
+            return Result.ok(shop);
+        }
+        //无，查询数据库
+        Shop shop = getById(id);
+        if(shop==null){
+            return Result.fail("无商铺信息");
+        }
+        bloomFilter.add(shop.getId());
+        cacheRedis.set(keyPreFix+id,shop,RedisConstants.CACHE_SHOP_TTL,TimeUnit.MINUTES);
+        //Shop shop = cacheRedis.cacheBlank(keyPreFix, id, Shop.class, this::getById, RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+        //Shop shop = cacheRedis.CacheExpire(keyPreFix, id, Shop.class, this::getById, LocalDateTime.now().plusSeconds(20l));
+        if (shop == null) {
+            return Result.fail("店铺不存在");
+        }
+
         return Result.ok(shop);
+
+
 
 //        //查询redis
 //        String shopJson = (String) redisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
@@ -171,7 +202,6 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             }
         });
         return shop;
-
 }
 
     @Override

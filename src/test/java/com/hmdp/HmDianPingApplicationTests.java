@@ -7,9 +7,12 @@ import com.hmdp.entity.User;
 import com.hmdp.service.IShopService;
 import com.hmdp.service.IUserService;
 import com.hmdp.service.impl.ShopServiceImpl;
+import com.hmdp.utils.BloomFilter;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisIdWorker;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
+import org.redisson.api.RBloomFilter;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,6 +24,7 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+@Slf4j
 @SpringBootTest
 class HmDianPingApplicationTests {
     @Autowired
@@ -54,7 +58,7 @@ class HmDianPingApplicationTests {
             System.out.println(token);
         }
     }
-    @Test
+    //@Test
     public void shopTest(){
         List<Shop> list = shopService.list();
         Map<Long, List<Shop>> listMap = list.stream().collect(Collectors.groupingBy(Shop::getTypeId));
@@ -68,7 +72,15 @@ class HmDianPingApplicationTests {
             }
             redisTemplate.opsForGeo().add(key,locations);
         }
-
+    }
+    @Test
+    public void  loadShop(){
+        RBloomFilter<Long> bloomFilter = BloomFilter.getBloomFilter();
+        List<Shop> shops = shopService.list();
+        for (Shop shop : shops) {
+            log.info("加载入布隆过滤器:{}",shop.getId());
+            bloomFilter.add(shop.getId());
+        }
     }
 
 }
